@@ -38,5 +38,5 @@ build-x86_64-freebsd:
 build-x86_64-linux-alpine:
   extends: .build
   tags:
-    - x86_64-linux-alpine
+    - x86_64-linux
   image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-linux-alpine:$DOCKER_REV"
