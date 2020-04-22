@@ -50,3 +50,17 @@ build-x86_64-linux-alpine:
   tags:
     - x86_64-linux
   image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-linux-alpine:$DOCKER_REV"
+
+build-x86_64-darwin:
+  extends: .build
+  before_script:
+    - curl -sSfL -o cabal-install-3.2.0.0-x86_64-apple-darwin17.7.0.tar.xz https://downloads.haskell.org/~cabal/cabal-install-3.2.0.0/cabal-install-3.2.0.0-x86_64-apple-darwin17.7.0.tar.xz
+    - tar xf cabal-install-3.2.0.0-x86_64-apple-darwin17.7.0.tar.xz
+    # We don't have sudo access in GitLab CI, so we can't just dump these in the
+    # usual PATH locations.
+    - mkdir "$HOME/bin/"
+    - cp cabal "$HOME/bin/"
+    - chmod +x "$HOME/bin/cabal"
+    - export PATH="$HOME/bin:$PATH"
+  tags:
+    - x86_64-darwin
