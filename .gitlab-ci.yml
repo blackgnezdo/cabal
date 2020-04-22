@@ -11,8 +11,32 @@ variables:
     paths:
       - out
 
+build-aarch64-linux-deb9:
+  extends: .build
+  tags:
+    - aarch64-linux
+  image: "registry.gitlab.haskell.org/ghc/ci-images/aarch64-linux-deb9:$DOCKER_REV"
+
+build-armv7-linux-deb9:
+  extends: .build
+  tags:
+    - armv7-linux
+  image: "registry.gitlab.haskell.org/ghc/ci-images/armv7-linux-deb9:$DOCKER_REV"
+
 build-x86_64-linux:
   extends: .build
   tags:
     - x86_64-linux
   image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-linux-deb9:$DOCKER_REV"
+
+build-x86_64-freebsd:
+  extends: .build
+  tags:
+    - x86_64-freebsd
+  image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-freebsd:$DOCKER_REV"
+
+build-x86_64-linux-alpine:
+  extends: .build
+  tags:
+    - x86_64-linux-alpine
+  image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-linux-alpine:$DOCKER_REV"
