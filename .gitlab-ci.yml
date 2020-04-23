@@ -34,11 +34,10 @@ build-x86_64-freebsd:
   before_script:
     # Install cabal-3.2.0.0 from hasufell's binaries. See https://github.com/haskell/cabal/issues/6616#issuecomment-616336384.
     - curl -sSfL -o cabal-install-3.2.0.0-x86_64-portbld-freebsd.tar.xz 'https://hasufell.de/d/d3e215db133e4fcaa61e/files/?p=/cabal-install-3.2.0.0-x86_64-portbld-freebsd.tar.xz&dl=1'
-    - tar xf cabal-install-3.2.0.0-x86_64-portbld-freebsd.tar.xz
     # We don't have sudo access in GitLab CI, so we can't just dump these in the
     # usual PATH locations.
-    - mkdir "$HOME/bin/"
-    - cp cabal "$HOME/bin/"
+    - mkdir -p "$HOME/bin/"
+    - tar --directory "$HOME/bin/" -xf cabal-install-3.2.0.0-x86_64-portbld-freebsd.tar.xz cabal
     - chmod +x "$HOME/bin/cabal"
     - export PATH="$HOME/bin:$PATH"
   tags:
@@ -55,11 +54,10 @@ build-x86_64-darwin:
   extends: .build
   before_script:
     - curl -sSfL -o cabal-install-3.2.0.0-x86_64-apple-darwin17.7.0.tar.xz https://downloads.haskell.org/~cabal/cabal-install-3.2.0.0/cabal-install-3.2.0.0-x86_64-apple-darwin17.7.0.tar.xz
-    - tar xf cabal-install-3.2.0.0-x86_64-apple-darwin17.7.0.tar.xz
     # We don't have sudo access in GitLab CI, so we can't just dump these in the
     # usual PATH locations.
-    - mkdir "$HOME/bin/"
-    - cp cabal "$HOME/bin/"
+    - mkdir -p "$HOME/bin/"
+    - tar --directory "$HOME/bin/" -xf cabal-install-3.2.0.0-x86_64-apple-darwin17.7.0.tar.xz cabal
     - chmod +x "$HOME/bin/cabal"
     - export PATH="$HOME/bin:$PATH"
   tags:
