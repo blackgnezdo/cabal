@@ -75,3 +75,23 @@ build-x86_64-darwin:
     - pushd "ghc-${GHC_VERSION}"; ./configure --prefix="$toolchain"; make install; popd
   tags:
     - x86_64-darwin
+
+build-x86_64-windows:
+  extends: .build
+  before_script:
+    - toolchain="$(pwd)/toolchain/"
+    - mkdir -p "$toolchain/bin/"
+    - export PATH="$toolchain/bin:$PATH"
+
+    # Install cabal
+    - curl -o cabal.zip https://downloads.haskell.org/~cabal/cabal-install-$CABAL_INSTALL_VERSION/cabal-install-$CABAL_INSTALL_VERSION-x86_64-unknown-mingw32.zip
+    - unzip u cabal.zip
+    - cp cabal.exe "$toolchain/bin/cabal"
+    - chmod +x "$toolchain/bin/cabal"
+
+    # Install ghc
+    - curl -sSfL -o ghc.tar.xz "https://downloads.haskell.org/~ghc/$GHC_VERSION/ghc-$GHC_VERSION-x86_64-unknown-mingw32.tar.xz"
+    - tar -xf ghc.tar.xz
+    - cp -R "ghc-$GHC_VERSION/" $toolchain
+  tags:
+    - x86_64-windows
