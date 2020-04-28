@@ -36,9 +36,11 @@ from typing import Set, Optional, Dict, List, Tuple, \
 PACKAGES = Path('packages')
 PKG_DB = PACKAGES / 'packages.conf'
 BOOTSTRAP_DEPS_JSON = Path('bootstrap-deps.json')
+HACKAGE_TARBALL = Path.home() / '.cabal' / 'packages' / 'hackage.haskell.org' / '01-index.tar'
 
 PackageName = NewType('PackageName', str)
 Version = NewType('Version', str)
+SHA256Hash = NewType('SHA256Hash', str)
 
 class PackageSource(Enum):
     HACKAGE = 'hackage'
@@ -49,9 +51,11 @@ BootstrapDep = NamedTuple('BootstrapDep', [
     ('package', PackageName),
     ('version', Version),
     ('source', PackageSource),
-    # only valid when source == HACKAGE
+    # source tarball SHA256
+    ('src_sha256', Optional[SHA256Hash]),
+    # `revision` is only valid when source == HACKAGE.
     ('revision', Optional[int]),
-    ('sha256', Optional[bytes]),
+    ('cabal_sha256', Optional[SHA256Hash]),
 ])
 
 class Compiler:
@@ -59,25 +63,55 @@ class Compiler:
         if not ghc_path.is_file():
             raise TypeError(f'GHC {ghc_path} is not a file')
 
-        self.ghc_path = ghc_path
-        self.ghc_pkg_path = self._find_ghc_pkg()
-        self.version = self._get_ghc_info()['Project version']
+        self.ghc_path = ghc_path.resolve()
+
+        info = self._get_ghc_info()
+        self.version = info['Project version']
+        self.lib_dir = Path(info['LibDir'])
+        self.ghc_pkg_path = (self.lib_dir / 'bin' / 'ghc-pkg').resolve()
+        if not self.ghc_pkg_path.is_file():
+            raise TypeError(f'ghc-pkg {self.ghc_pkg_path} is not a file')
 
     def _get_ghc_info(self) -> Dict[str,str]:
         from ast import literal_eval
-        p = subprocess.run([self.ghc_path, '--info'], capture_output=True, check=True)
-        return dict(literal_eval(p.stdout))
+        p = subprocess.run([self.ghc_path, '--info'], capture_output=True, check=True, encoding='UTF-8')
+        out = p.stdout.replace('\n', '').strip()
+        return dict(literal_eval(out))
 
-    def _find_ghc_pkg(self) -> Path:
-        info = self._get_ghc_info()
-        lib_dir = Path(info['LibDir'])
-        ghc_pkg = lib_dir / 'bin' / 'ghc-pkg'
-        if not ghc_pkg.is_file():
-            raise TypeError(f'ghc-pkg {ghc_pkg} is not a file')
-        return ghc_pkg
+def get_revision(cabal_contents: str) -> int:
+    """
+    "Parse" the revision field from a .cabal file.
+    """
+    import re
+    m = re.search('x-revision: *([0-9]+)', cabal_contents)
+    if m is None:
+        return 0
+    else:
+        return int(m.group(1))
+
+def find_pkg_revision(index_tarball: Path,
+                      pkg_name: PackageName,
+                      version: Version
+                      ) -> Tuple[SHA256Hash, int]:
+    """
+    Find the current revision number and hash of the most recent revision of
+    the given package name/version present in an index tarball. Ideally we
+    would request this information from Hackage, but sadly this isn't currently
+    hackage-server provides no way to do so.
+    """
+    from tarfile import TarFile
+    tar = TarFile.open(index_tarball)
+    f = tar.extractfile(f'{pkg_name}/{version}/{pkg_name}.cabal')
+    if f is None:
+        raise ValueError(f'Failed to find .cabal file for {pkg_name}-{version} in package index {index_tarball}.')
+    contents = f.read()
+    revision = get_revision(contents.decode('UTF-8'))
+    h = hashlib.sha256()
+    h.update(contents)
+    return (SHA256Hash(h.hexdigest()), revision)
 
 class BadTarball(Exception):
-    def __init__(self, path: Path, expected_sha256: bytes, found_sha256: bytes):
+    def __init__(self, path: Path, expected_sha256: SHA256Hash, found_sha256: SHA256Hash):
         self.path = path
         self.expected_sha256 = expected_sha256
         self.found_sha256 = found_sha256
@@ -95,10 +129,16 @@ def package_url(package: PackageName, version: Version) -> str:
 def package_cabal_url(package: PackageName, version: Version, revision: int) -> str:
     return f'https://hackage.haskell.org/package/{package}-{version}/revision/{revision}.cabal'
 
+def verify_sha256(expected_hash: SHA256Hash, f: Path):
+    h = hash_file(hashlib.sha256(), f.open('rb'))
+    if h != expected_hash:
+        raise BadTarball(f, expected_hash, h)
+
 def fetch_package(package: PackageName,
                   version: Version,
+                  src_sha256: SHA256Hash,
                   revision: Optional[int],
-                  sha256: bytes
+                  cabal_sha256: Optional[SHA256Hash],
                   ) -> Path:
     import urllib.request
 
@@ -114,14 +154,13 @@ def fetch_package(package: PackageName,
     # Download revised cabal file
     cabal_file = PACKAGES / f'{package}.cabal'
     if revision is not None and not cabal_file.exists():
+        assert cabal_sha256 is not None
         url = package_cabal_url(package, version, revision)
         with urllib.request.urlopen(url) as resp:
             shutil.copyfileobj(resp, cabal_file.open('wb'))
+            verify_sha256(cabal_sha256, cabal_file)
 
-    h = hash_file(hashlib.sha256(), open(out, 'rb'))
-    if sha256 != h:
-        raise BadTarball(out, sha256, h)
-
+    verify_sha256(src_sha256, out)
     return out
 
 def read_bootstrap_deps(path: Path) -> List[BootstrapDep]:
@@ -138,8 +177,9 @@ def write_bootstrap_deps(deps: List[BootstrapDep]):
             'package': dep.package,
             'version': dep.version,
             'source': dep.source.value,
+            'src_sha256': dep.src_sha256,
             'revision': dep.revision,
-            'sha256': dep.sha256
+            'cabal_sha256': dep.cabal_sha256,
         }
 
     json.dump([to_json(dep) for dep in deps],
@@ -155,8 +195,9 @@ def install_dep(dep: BootstrapDep, ghc: Compiler) -> None:
         return
 
     elif dep.source == PackageSource.HACKAGE:
-        assert dep.sha256 is not None
-        tarball = fetch_package(dep.package, dep.version, dep.revision, dep.sha256)
+        assert dep.src_sha256 is not None
+        tarball = fetch_package(dep.package, dep.version, dep.src_sha256,
+                                dep.revision, dep.cabal_sha256)
         subprocess.run(['tar', 'xf', tarball.resolve()],
                        cwd=PACKAGES, check=True)
         sdist_dir = PACKAGES / f'{dep.package}-{dep.version}'
@@ -193,11 +234,11 @@ def install_sdist(sdist_dir: Path, ghc: Compiler):
     check_call(['./Setup', 'build'])
     check_call(['./Setup', 'install'])
 
-def hash_file(h, f: BinaryIO) -> bytes:
+def hash_file(h, f: BinaryIO) -> SHA256Hash:
     while True:
         d = f.read(1024)
         if len(d) == 0:
-            return h.hexdigest()
+            return SHA256Hash(h.hexdigest())
 
         h.update(d)
 
@@ -224,19 +265,27 @@ def extract_plan() -> List[BootstrapDep]:
     ][0]
 
     def unit_to_bootstrap_dep(unit: PlanUnit) -> BootstrapDep:
+        package = unit['pkg-name']
+        version = unit['pkg-version']
+        cabal_sha256 = None
+        revision = None
+
         if 'pkg-src' in unit \
                 and unit['pkg-src']['type'] == 'local':
             source = PackageSource.LOCAL
         elif unit['type'] == 'configured':
             source = PackageSource.HACKAGE
+            cabal_sha256, revision = find_pkg_revision(HACKAGE_TARBALL, package, version)
         elif unit['type'] == 'pre-existing':
             source = PackageSource.PREEXISTING
 
-        return BootstrapDep(package = unit['pkg-name'],
-                            version = unit['pkg-version'],
+        return BootstrapDep(package = package,
+                            version = version,
                             source = source,
-                            revision = None,
-                            sha256 = unit.get('pkg-src-sha256'))
+                            src_sha256 = unit.get('pkg-src-sha256'),
+                            revision = revision,
+                            cabal_sha256 = cabal_sha256,
+                            )
 
     def unit_ids_deps(unit_ids: List[UnitId]) -> List[BootstrapDep]:
         deps = [] # type: List[BootstrapDep]
@@ -290,7 +339,7 @@ def main() -> None:
                         help='generate bootstrap-deps.json from plan.json')
     parser.add_argument('-d', '--deps', type=Path, default='bootstrap-deps.json',
                         help='bootstrap dependency file')
-    parser.add_argument('-w', '--with-compiler', type=Path, default='ghc',
+    parser.add_argument('-w', '--with-compiler', type=Path,
                         help='path to GHC')
     args = parser.parse_args()
 
@@ -300,12 +349,20 @@ def main() -> None:
         print(f'dependencies written to {BOOTSTRAP_DEPS_JSON}')
     else:
         print(dedent("""
-        DO NOT use this script if you have another recent cabal-install available.
-        This script is intended only for bootstrapping cabal-install on new
-        architectures.
+            DO NOT use this script if you have another recent cabal-install available.
+            This script is intended only for bootstrapping cabal-install on new
+            architectures.
         """))
 
-        ghc = Compiler(args.with_compiler)
+        if args.with_compiler is None:
+            path = shutil.which('ghc')
+            if path is None:
+                raise ValueError("Couldn't find ghc in PATH")
+            ghc = Compiler(Path(path))
+        else:
+            ghc = Compiler(args.with_compiler)
+
+        print(f'Bootstrapping cabal-install with GHC {ghc.version} at {ghc.ghc_path}...')
         deps = read_bootstrap_deps(args.deps)
         bootstrap(deps, ghc)
         cabal_path = (PACKAGES / 'tmp' / 'bin' / 'cabal').resolve()
