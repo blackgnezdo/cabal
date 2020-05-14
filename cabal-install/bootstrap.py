@@ -25,6 +25,7 @@ Usage:
 
 from enum import Enum
 import hashlib
+import logging
 import json
 from pathlib import Path
 import shutil
@@ -32,6 +33,8 @@ import subprocess
 from textwrap import dedent
 from typing import Set, Optional, Dict, List, Tuple, \
                    NewType, BinaryIO, NamedTuple, TypeVar
+
+#logging.basicConfig(level=logging.INFO)
 
 PACKAGES = Path('packages')
 PKG_DB = PACKAGES / 'packages.conf'
@@ -89,26 +92,45 @@ def get_revision(cabal_contents: str) -> int:
     else:
         return int(m.group(1))
 
-def find_pkg_revision(index_tarball: Path,
-                      pkg_name: PackageName,
-                      version: Version
-                      ) -> Tuple[SHA256Hash, int]:
+PackageSpec = Tuple[PackageName, Version]
+
+def find_pkg_revisions(index_tarball: Path,
+                       pkgs: Set[PackageSpec],
+                       ) -> Dict[PackageSpec, Tuple[SHA256Hash, int]]:
     """
     Find the current revision number and hash of the most recent revision of
-    the given package name/version present in an index tarball. Ideally we
+    the given package name/versions present in an index tarball. Ideally we
     would request this information from Hackage, but sadly this isn't currently
     hackage-server provides no way to do so.
+
+    This interface is a bit awkward but it allows us to find all of the
+    information we need from the index in a single pass. This saves a
+    significant amount of time.
     """
-    from tarfile import TarFile
+    from tarfile import TarFile, TarInfo
     tar = TarFile.open(index_tarball)
-    f = tar.extractfile(f'{pkg_name}/{version}/{pkg_name}.cabal')
-    if f is None:
-        raise ValueError(f'Failed to find .cabal file for {pkg_name}-{version} in package index {index_tarball}.')
-    contents = f.read()
-    revision = get_revision(contents.decode('UTF-8'))
-    h = hashlib.sha256()
-    h.update(contents)
-    return (SHA256Hash(h.hexdigest()), revision)
+    interesting_paths = {
+        f'{pkg_name}/{version}/{pkg_name}.cabal': (pkg_name, version)
+        for pkg_name, version in pkgs
+    } # type: Dict[str, PackageSpec]
+
+    logging.info(f'Searching for revisions of {pkgs}')
+    result = {} # type: Dict[PackageSpec, Tuple[SHA256Hash, int]]
+    while True:
+        tar_info = tar.next()
+        if tar_info is None:
+            break
+
+        spec = interesting_paths.get(tar_info.name)
+        if spec is not None:
+            f = tar.extractfile(tar_info)
+            contents = f.read()
+            revision = get_revision(contents.decode('UTF-8'))
+            h = hashlib.sha256()
+            h.update(contents)
+            result[spec] = (SHA256Hash(h.hexdigest()), revision)
+
+    return result
 
 class BadTarball(Exception):
     def __init__(self, path: Path, expected_sha256: SHA256Hash, found_sha256: SHA256Hash):
@@ -275,7 +297,6 @@ def extract_plan() -> List[BootstrapDep]:
             source = PackageSource.LOCAL
         elif unit['type'] == 'configured':
             source = PackageSource.HACKAGE
-            cabal_sha256, revision = find_pkg_revision(HACKAGE_TARBALL, package, version)
         elif unit['type'] == 'pre-existing':
             source = PackageSource.PREEXISTING
 
@@ -283,8 +304,9 @@ def extract_plan() -> List[BootstrapDep]:
                             version = version,
                             source = source,
                             src_sha256 = unit.get('pkg-src-sha256'),
-                            revision = revision,
-                            cabal_sha256 = cabal_sha256,
+                            # these will be handled in a second pass below...
+                            revision = None,
+                            cabal_sha256 = None,
                             )
 
     def unit_ids_deps(unit_ids: List[UnitId]) -> List[BootstrapDep]:
@@ -309,7 +331,25 @@ def extract_plan() -> List[BootstrapDep]:
 
         return deps
 
-    return remove_duplicates(unit_deps(target_unit) + [unit_to_bootstrap_dep(target_unit)])
+    deps = remove_duplicates(unit_deps(target_unit) + [unit_to_bootstrap_dep(target_unit)])
+
+    # Find all of the package revisions and cabal file SHAs.
+    pkgs_needing_rev_info = set((dep.package, dep.version)
+                                for dep in deps
+                                if dep.source == PackageSource.HACKAGE) # type: Set[PackageSpec]
+    rev_info = find_pkg_revisions(HACKAGE_TARBALL, pkgs_needing_rev_info)
+    def update_rev_info(dep: BootstrapDep) -> BootstrapDep:
+        if dep.source == PackageSource.HACKAGE:
+            info = rev_info.get((dep.package, dep.version))
+            assert info is not None
+            cabal_sha256, revision = info
+            dep = dep._replace(cabal_sha256=cabal_sha256, revision=revision)
+            assert dep.revision is not None
+            assert dep.cabal_sha256 is not None
+
+        return dep
+
+    return set(update_rev_info(dep) for dep in deps)
 
 a = TypeVar('a')
 
