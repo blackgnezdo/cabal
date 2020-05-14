@@ -4,23 +4,33 @@
 """
 bootstrap.py - bootstrapping utility for cabal-install.
 
+See bootstrap.py --help for usage instructions.
+"""
+
+USAGE = """
 This utility is only intended for use in building cabal-install
-on a new platform. If you have an otherwise functional cabal-install
+on a new platform. If you already have a functional (if dated) cabal-install
 please rather run `cabal v2-install .`.
 
-Usage:
+Typical usage:
 
-  1. On a system with functional cabal-install, use `cabal v2-configure` to
-     compute an install plan for the same GHC version that you will be using to
-     bootstrap.
+  1. On a system with functional cabal-install, install the same GHC version
+     as you will use to build on the host system.
+
+  1. On a host system , use `cabal v2-build` to compute an install plan for the
+     same GHC version that you will be using to bootstrap.
 
   2. Build a dependency description file (bootstrap-deps.json) from this
-     install plan by running `bootstrap.py --extract-plan`.
+     install plan by running:
 
-  3. Copy bootstrap-deps.json to the bootstrapping environment.
+       bootstrap.py --extract-plan
 
-  4. On the system you are bootstrapping, run `bootstrap.py -d
-     bootstrap-deps.json`
+  3. Copy `bootstrap-deps.json` to the bootstrapping environment.
+
+  4. On the system you are bootstrapping, run
+
+       bootstrap.py -d bootstrap-deps.json
+
 """
 
 from enum import Enum
@@ -378,7 +388,10 @@ def bootstrap(deps: List[BootstrapDep], ghc: Compiler) -> None:
 
 def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="bootstrapping utility for cabal-install.",
+        epilog = USAGE,
+        formatter_class = argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--extract-plan', action='store_true',
                         help='generate bootstrap-deps.json from plan.json')
     parser.add_argument('-d', '--deps', type=Path, default='bootstrap-deps.json',
