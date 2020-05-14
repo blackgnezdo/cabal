@@ -25,10 +25,10 @@ jobs:
       - uses: actions/checkout@v2
       - name: bootstrap.py
         run: |
-          python3 cabal-install/bootstrap.py -w /opt/ghc/8.6.5/bin/ghc -d bootstrap-deps-8.6.5.json
+          python3 cabal-install/bootstrap.py -w /opt/ghc/8.6.5/bin/ghc -d bootstrap-deps-ghc-8.6.5.json
       - name: Smoke test
         run: |
-          $HOME/.cabal/bin/cabal --version
+          packages/tmp/bin/cabal --version
 
   boostrap-macos:
     name: Bootstrap on macOS
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v2
       - name: bootstrap.py
         run: |
-          python3 cabal-install/bootstrap.py -w /opt/ghc/8.6.5/bin/ghc -d bootstrap-deps-8.6.5.json
+          python3 cabal-install/bootstrap.py -w /opt/ghc/8.6.5/bin/ghc -d bootstrap-deps-ghc-8.6.5.json
       - name: Smoke test
         run: |
-          $HOME/.cabal/bin/cabal --version
+          packages/tmp/bin/cabal --version
