@@ -186,12 +186,13 @@ def fetch_package(package: PackageName,
     return out
 
 def read_bootstrap_deps(path: Path) -> List[BootstrapDep]:
-    deps = json.load(path.open())
+    obj = json.load(path.open())
+
     def from_json(o: dict) -> BootstrapDep:
         o['source'] = PackageSource(o['source'])
         return BootstrapDep(**o)
 
-    return [from_json(dep) for dep in deps]
+    return [from_json(dep) for dep in obj['dependencies']]
 
 def write_bootstrap_deps(deps: List[BootstrapDep]):
     def to_json(dep: BootstrapDep) -> object:
@@ -204,7 +205,10 @@ def write_bootstrap_deps(deps: List[BootstrapDep]):
             'cabal_sha256': dep.cabal_sha256,
         }
 
-    json.dump([to_json(dep) for dep in deps],
+    obj = {
+        'dependencies': [to_json(dep) for dep in deps],
+    }
+    json.dump(obj,
               BOOTSTRAP_DEPS_JSON.open('w'),
               indent=2)
 
