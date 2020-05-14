@@ -83,7 +83,7 @@ class Compiler:
 
     def _get_ghc_info(self) -> Dict[str,str]:
         from ast import literal_eval
-        p = subprocess.run([self.ghc_path, '--info'], capture_output=True, check=True, encoding='UTF-8')
+        p = subprocess.run([self.ghc_path, '--info'], stdout=subprocess.PIPE, check=True, encoding='UTF-8')
         out = p.stdout.replace('\n', '').strip()
         return dict(literal_eval(out))
 
