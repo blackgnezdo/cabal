@@ -363,7 +363,7 @@ def extract_plan() -> List[BootstrapDep]:
 
         return dep
 
-    return set(update_rev_info(dep) for dep in deps)
+    return [update_rev_info(dep) for dep in deps]
 
 a = TypeVar('a')
 
