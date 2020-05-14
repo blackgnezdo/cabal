@@ -255,7 +255,7 @@ def install_sdist(sdist_dir: Path, ghc: Compiler):
     def check_call(args: List[str]) -> None:
         subprocess.run(args, cwd=sdist_dir, check=True)
 
-    check_call([str(ghc.ghc_path), '--make', 'Setup'])
+    check_call([str(ghc.ghc_path), '--make', '-package-env', '-', 'Setup'])
     check_call(['./Setup', 'configure'] + configure_args)
     check_call(['./Setup', 'build'])
     check_call(['./Setup', 'install'])
