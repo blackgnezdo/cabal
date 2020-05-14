@@ -10,7 +10,7 @@
     },
     {
       "package": "base",
-      "version": "4.14.0.0",
+      "version": "4.13.0.0",
       "source": "pre-existing",
       "src_sha256": null,
       "revision": null,
@@ -18,7 +18,7 @@
     },
     {
       "package": "binary",
-      "version": "0.8.8.0",
+      "version": "0.8.7.0",
       "source": "pre-existing",
       "src_sha256": null,
       "revision": null,
@@ -90,7 +90,7 @@
     },
     {
       "package": "process",
-      "version": "1.6.8.2",
+      "version": "1.6.8.0",
       "source": "pre-existing",
       "src_sha256": null,
       "revision": null,
@@ -98,7 +98,7 @@
     },
     {
       "package": "text",
-      "version": "1.2.3.2",
+      "version": "1.2.4.0",
       "source": "pre-existing",
       "src_sha256": null,
       "revision": null,
@@ -146,7 +146,7 @@
     },
     {
       "package": "template-haskell",
-      "version": "2.16.0.0",
+      "version": "2.15.0.0",
       "source": "pre-existing",
       "src_sha256": null,
       "revision": null,
@@ -170,7 +170,7 @@
     },
     {
       "package": "ghc-prim",
-      "version": "0.6.1",
+      "version": "0.5.3",
       "source": "pre-existing",
       "src_sha256": null,
       "revision": null,
@@ -178,7 +178,7 @@
     },
     {
       "package": "integer-gmp",
-      "version": "1.0.3.0",
+      "version": "1.0.2.0",
       "source": "pre-existing",
       "src_sha256": null,
       "revision": null,
@@ -258,11 +258,11 @@
     },
     {
       "package": "ed25519",
-      "version": "0.0.2.0",
+      "version": "0.0.5.0",
       "source": "hackage",
-      "src_sha256": "b2bac03694041e36ca82210a79c883b1813d8e2cfe49f4741feebc4092b80874",
-      "revision": 0,
-      "cabal_sha256": "4731ae8cf9224813d23a4321ca6ea2d2da579ef729a2e42d21b94e6df160441e"
+      "src_sha256": "d8a5958ebfa9309790efade64275dc5c441b568645c45ceed1b0c6ff36d6156d",
+      "revision": 2,
+      "cabal_sha256": "2e051ab9d98bc22e0c4afe09e763d3e8e0571ea51a3ae952db33ac89e58006b3"
     },
     {
       "package": "lukko",

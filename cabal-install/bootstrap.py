@@ -15,21 +15,17 @@ please rather run `cabal v2-install .`.
 Typical usage:
 
   1. On a system with functional cabal-install, install the same GHC version
-     as you will use to build on the host system.
+     as you will use to bootstrap on the host system.
 
-  1. On a host system , use `cabal v2-build` to compute an install plan for the
-     same GHC version that you will be using to bootstrap.
+  2. Build a dependency description file (bootstrap-deps.json) by running:
 
-  2. Build a dependency description file (bootstrap-deps.json) from this
-     install plan by running:
-
-       bootstrap.py --extract-plan
+       bootstrap.py --extract-plan -d bootstrap-deps.json -w /path/to/ghc
 
   3. Copy `bootstrap-deps.json` to the bootstrapping environment.
 
   4. On the system you are bootstrapping, run
 
-       bootstrap.py -d bootstrap-deps.json
+       bootstrap.py -d bootstrap-deps.json -w /path/to-ghc
 
 """
 
@@ -48,7 +44,6 @@ from typing import Set, Optional, Dict, List, Tuple, \
 
 PACKAGES = Path('packages')
 PKG_DB = PACKAGES / 'packages.conf'
-BOOTSTRAP_DEPS_JSON = Path('bootstrap-deps.json')
 HACKAGE_TARBALL = Path.home() / '.cabal' / 'packages' / 'hackage.haskell.org' / '01-index.tar'
 
 PackageName = NewType('PackageName', str)
@@ -80,8 +75,9 @@ class Compiler:
 
         info = self._get_ghc_info()
         self.version = info['Project version']
-        self.lib_dir = Path(info['LibDir'])
-        self.ghc_pkg_path = (self.lib_dir / 'bin' / 'ghc-pkg').resolve()
+        #self.lib_dir = Path(info['LibDir'])
+        #self.ghc_pkg_path = (self.lib_dir / 'bin' / 'ghc-pkg').resolve()
+        self.ghc_pkg_path = (self.ghc_path.parent / 'ghc-pkg').resolve()
         if not self.ghc_pkg_path.is_file():
             raise TypeError(f'ghc-pkg {self.ghc_pkg_path} is not a file')
 
@@ -204,7 +200,7 @@ def read_bootstrap_deps(path: Path) -> List[BootstrapDep]:
 
     return [from_json(dep) for dep in obj['dependencies']]
 
-def write_bootstrap_deps(deps: List[BootstrapDep]):
+def write_bootstrap_deps(path: Path, deps: List[BootstrapDep]):
     def to_json(dep: BootstrapDep) -> object:
         return {
             'package': dep.package,
@@ -218,9 +214,7 @@ def write_bootstrap_deps(deps: List[BootstrapDep]):
     obj = {
         'dependencies': [to_json(dep) for dep in deps],
     }
-    json.dump(obj,
-              BOOTSTRAP_DEPS_JSON.open('w'),
-              indent=2)
+    json.dump(obj, path.open('w'), indent=2)
 
 def install_dep(dep: BootstrapDep, ghc: Compiler) -> None:
     if dep.source == PackageSource.PREEXISTING:
@@ -400,10 +394,22 @@ def main() -> None:
                         help='path to GHC')
     args = parser.parse_args()
 
+    # Find compiler
+    if args.with_compiler is None:
+        path = shutil.which('ghc')
+        if path is None:
+            raise ValueError("Couldn't find ghc in PATH")
+        ghc = Compiler(Path(path))
+    else:
+        ghc = Compiler(args.with_compiler)
+
+    print(f'Bootstrapping cabal-install with GHC {ghc.version} at {ghc.ghc_path}...')
+
     if args.extract_plan:
+        subprocess.run(['cabal', 'v2-configure', '-w', ghc.ghc_path])
         deps = extract_plan()
-        write_bootstrap_deps(deps)
-        print(f'dependencies written to {BOOTSTRAP_DEPS_JSON}')
+        write_bootstrap_deps(args.deps, deps)
+        print(f'dependencies written to {args.deps}')
     else:
         print(dedent("""
             DO NOT use this script if you have another recent cabal-install available.
@@ -411,15 +417,6 @@ def main() -> None:
             architectures.
         """))
 
-        if args.with_compiler is None:
-            path = shutil.which('ghc')
-            if path is None:
-                raise ValueError("Couldn't find ghc in PATH")
-            ghc = Compiler(Path(path))
-        else:
-            ghc = Compiler(args.with_compiler)
-
-        print(f'Bootstrapping cabal-install with GHC {ghc.version} at {ghc.ghc_path}...')
         deps = read_bootstrap_deps(args.deps)
         bootstrap(deps, ghc)
         cabal_path = (PACKAGES / 'tmp' / 'bin' / 'cabal').resolve()
