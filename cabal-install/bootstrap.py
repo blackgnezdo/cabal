@@ -228,7 +228,7 @@ def install_dep(dep: BootstrapDep, ghc: Compiler) -> None:
         assert dep.src_sha256 is not None
         tarball = fetch_package(dep.package, dep.version, dep.src_sha256,
                                 dep.revision, dep.cabal_sha256)
-        subprocess.run(['tar', 'xf', tarball.resolve()],
+        subprocess.run(['tar', 'zxf', tarball.resolve()],
                        cwd=PACKAGES, check=True)
         sdist_dir = PACKAGES / f'{dep.package}-{dep.version}'
 
