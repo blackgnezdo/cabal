@@ -1,10 +1,12 @@
 module Main (main) where
 
-import Control.Monad      (when)
+import Control.Monad      (forM_, when)
 import Data.Either        (partitionEithers)
+import Data.Function      (on)
 import Data.Foldable      (for_, traverse_)
-import Data.Maybe         (listToMaybe)
+import Data.Maybe         (fromMaybe, listToMaybe)
 import Data.String        (fromString)
+import Data.List          (intercalate, nubBy, sortBy)
 import Data.Traversable   (for)
 import System.Environment (getArgs)
 import System.Exit        (exitFailure)
@@ -25,29 +27,100 @@ import qualified Topograph                      as TG
 -- Main
 -------------------------------------------------------------------------------
 
+cabalId :: (P.PkgName, P.CompName)
+cabalId = ( P.PkgName (fromString "cabal-install")
+          , P.CompNameExe (fromString "cabal")
+          )
+
+shellCheckId :: (P.PkgName, P.CompName)
+shellCheckId = ( P.PkgName (fromString "ShellCheck")
+               , P.CompNameExe (fromString "shellcheck")
+               )
+
+
+darcsId :: (P.PkgName, P.CompName)
+darcsId = ( P.PkgName (fromString "darcs")
+          , P.CompNameExe (fromString "darcs")
+          )
+
+xmonadId :: (P.PkgName, P.CompName)
+xmonadId = ( P.PkgName (fromString "xmonad")
+          , P.CompNameExe (fromString "xmonad")
+          )
+
+xmobarId :: (P.PkgName, P.CompName)
+xmobarId = ( P.PkgName (fromString "xmobar")
+          , P.CompNameExe (fromString "xmobar")
+          )
+
+hasktagsId :: (P.PkgName, P.CompName)
+hasktagsId = ( P.PkgName (fromString "hasktags")
+          , P.CompNameExe (fromString "hasktags")
+          )
+
+printForBsdPort :: [Dep] -> IO ()
+printForBsdPort deps = do
+  let cleanedDeps = nubBy ((==) `on` depPackageName)
+                    $ sortBy (compare `on` depPackageName) deps
+  forM_ cleanedDeps $ \dep -> do
+            let P.PkgName name = depPackageName dep
+                P.Ver v = depVersion dep
+                ver = intercalate "." (map show v)
+                rev = show $ fromMaybe 0 $ depRevision dep
+            putStrLn $ intercalate "\t" ["", T.unpack name, ver, rev, "\\"]
+
+printShellCheck :: IO ()
+printShellCheck = do
+  x <- main1 shellCheckId "/home/greg/s/ShellCheck-0.7.1/ghcver.plan.json"
+  printForBsdPort $ resDependencies x
+
+printDarcs :: IO ()
+printDarcs = do
+  x <- main1 darcsId "/home/greg/s/darcs-2.16.2/dist-newstyle/cache/plan.json"
+  printForBsdPort $ resDependencies x
+
+printXmonad :: IO ()
+printXmonad = do
+  x <- main1 xmonadId "/home/greg/s/xmonad-0.15/dist-newstyle/cache/plan.json"
+  printForBsdPort $ resDependencies x
+
+printXmobar :: IO ()
+printXmobar = do
+  x <- main1 xmobarId "/home/greg/s/xmobar-0.36/dist-newstyle/cache/plan.json"
+  printForBsdPort $ resDependencies x
+
+printHasktags :: IO ()
+printHasktags = do
+  x <- main1 hasktagsId "/home/greg/s/hasktags-0.71.2/dist-newstyle/cache/plan.json"
+  printForBsdPort $ resDependencies x
+
 main :: IO ()
 main = do
     args <- getArgs
     case args of
-        [fp] -> main1 fp
+        [fp] -> main1 cabalId fp >>= LBS.putStr . A.encode
         _    -> die "Usage: cabal-bootstrap-gen plan.json"
 
-main1 :: FilePath -> IO ()
-main1 planPath = do
+main1 :: (P.PkgName, P.CompName) -> FilePath -> IO Result
+main1 unit planPath = do
     meta <- I.cachedHackageMetadata
     plan <- P.decodePlanJson planPath
-    main2 meta plan
+    main2 unit meta plan
 
-main2 :: Map.Map C.PackageName I.PackageInfo -> P.PlanJson -> IO ()
-main2 meta plan = do
-    info $ show $ Map.keys $ P.pjUnits plan
+main2 :: (P.PkgName, P.CompName) -> Map.Map C.PackageName I.PackageInfo -> P.PlanJson -> IO Result
+main2 unitId meta plan = do
+    mapM_ (info . show) (Map.keys $ P.pjUnits plan)
 
-    -- find cabal-install:exe:cabal unit
-    (cabalUid, cabalUnit) <- case findCabalExe plan of
+    let diagExe = T.unpack p ++ ":exe:" ++ T.unpack e
+        (P.PkgName p, P.CompNameExe e) = unitId
+
+    -- find the unit to build
+    (cabalUid, cabalUnit) <- case findGivenExe unitId plan of
         Just x  -> return x
-        Nothing -> die "Cannot find cabal-install:exe:cabal unit"
+        Nothing -> die $ "Cannot find " ++ diagExe ++ " unit"
 
-    info $ "cabal-install:exe:cabal unit " ++ show cabalUid
+    info $ diagExe ++ " unit " ++ show cabalUid
+    info $ show cabalUnit
 
     -- BFS from cabal unit, getting all dependencies
     units <- bfs plan cabalUnit
@@ -105,7 +178,7 @@ main2 meta plan = do
                         ]
                     }
 
-    LBS.putStr $ A.encode Result
+    return $ Result
         { resBuiltin      = builtin
         , resDependencies = deps
         }
@@ -113,7 +186,7 @@ main2 meta plan = do
 bfs :: P.PlanJson -> P.Unit -> IO [P.Unit]
 bfs plan unit0 = do
     uids <- either (\loop -> die $ "Loop in install-plan " ++ show loop) id $ TG.runG am $ \g -> do
-        v <- maybe (die "Cannot find cabal-install unit in topograph") return $
+        v <- maybe (die $ "Cannot find " <> show unit0 <> " unit in topograph") return $
             TG.gToVertex g $ P.uId unit0
 
         let t = TG.dfs g v
@@ -124,9 +197,8 @@ bfs plan unit0 = do
 
     for uids $ \uid -> do
         unit <- lookupUnit units uid
-        case Map.toList (P.uComps unit) of
-            [(_, compinfo)] -> checkExeDeps uid (P.pjUnits plan) (P.ciExeDeps compinfo)
-            _               -> die $ "Unit with multiple components " ++ show uid
+        forM_ (Map.toList (P.uComps unit)) $ \(_, compinfo) ->
+            checkExeDeps uid (P.pjUnits plan) (P.ciExeDeps compinfo)
         return unit
 
   where
@@ -223,11 +295,11 @@ die msg = do
 -- Pure bits
 -------------------------------------------------------------------------------
 
-findCabalExe :: P.PlanJson -> Maybe (P.UnitId, P.Unit)
-findCabalExe plan = listToMaybe
-    [ (uid, unit)
+findGivenExe :: (P.PkgName, P.CompName) -> P.PlanJson -> Maybe (P.UnitId, P.Unit)
+findGivenExe (pkg, exe) plan = listToMaybe
+    [ (uid, unit {P.uComps = Map.singleton exe exeValue} )
     | (uid, unit) <- Map.toList (P.pjUnits plan)
     , let P.PkgId pkgname _ = P.uPId unit
-    , pkgname == P.PkgName (fromString "cabal-install")
-    , Map.keys (P.uComps unit) == [P.CompNameExe (fromString "cabal")]
+    , pkgname == pkg
+    , Just exeValue <- [Map.lookup exe (P.uComps unit)]
     ]
